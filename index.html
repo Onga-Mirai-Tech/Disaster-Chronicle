@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disaster Chronicle (日本の災害アーカイブ検索)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* スクロールバーのスタイリング (都道府県リスト用) */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ヘッダー -->
+    <header class="bg-sky-700 text-white shadow-md py-6">
+        <div class="max-w-5xl mx-auto px-4 text-center">
+            <h1 class="text-3xl font-bold mb-2"><i class="fa-solid fa-house-tsunami mr-2"></i>Disaster Chronicle</h1>
+            <p class="text-sky-100 text-sm md:text-base">指定した日付の「前後」に発生した過去の災害を振り返ります。</p>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="flex-grow max-w-5xl mx-auto w-full px-4 py-8">
+        
+        <!-- 検索フォーム -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 mb-8 text-center">
+            <h2 class="text-lg font-semibold mb-6 text-slate-700">検索条件を指定してください</h2>
+            
+            <!-- 日付指定 -->
+            <div class="flex flex-wrap justify-center items-center gap-4 mb-6">
+                <div class="flex items-center gap-2">
+                    <select id="monthSelect" aria-label="月" class="border border-slate-300 rounded-lg px-4 py-2 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500 text-lg font-medium cursor-pointer"></select>
+                    <span class="text-lg font-medium text-slate-600">月</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select id="daySelect" aria-label="日" class="border border-slate-300 rounded-lg px-4 py-2 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500 text-lg font-medium cursor-pointer"></select>
+                    <span class="text-lg font-medium text-slate-600">日</span>
+                </div>
+            </div>
+
+            <!-- 検索範囲（日数）指定スライダー -->
+            <div class="mb-8 max-w-sm mx-auto">
+                <label class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                    <span><i class="fa-solid fa-arrows-left-right mr-1"></i>検索範囲 (指定日の前後)</span>
+                    <span><span id="daysValue" class="text-sky-600 font-extrabold text-xl">10</span> 日</span>
+                </label>
+                <input type="range" id="daysRange" min="0" max="15" value="10" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-600">
+                <div class="flex justify-between text-xs text-slate-400 mt-1 px-1">
+                    <span>当日のみ(0日)</span>
+                    <span>15日</span>
+                </div>
+            </div>
+
+            <!-- 都道府県指定 -->
+            <div class="border-t border-slate-200 pt-6 text-left max-w-4xl mx-auto mb-8">
+                <div class="flex items-center justify-between mb-3">
+                    <label class="text-sm md:text-base font-bold text-slate-700"><i class="fa-solid fa-map-location-dot mr-1"></i> 地域で絞り込む (複数選択可)</label>
+                    <button id="clearPrefsBtn" class="text-sm font-medium text-sky-600 hover:text-sky-800 hover:underline transition px-2 py-1 bg-sky-50 rounded">
+                        <i class="fa-solid fa-rotate-left mr-1"></i>すべてクリア（全国検索）
+                    </button>
+                </div>
+                <div class="max-h-52 overflow-y-auto custom-scrollbar border border-slate-300 rounded-lg p-4 bg-slate-50 shadow-inner">
+                    <div id="prefecturesContainer" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-y-3 gap-x-2">
+                        <!-- JSで都道府県チェックボックスを生成 -->
+                    </div>
+                </div>
+                <p class="text-xs text-slate-500 mt-2 ml-1">※未選択の場合は「全国」が対象になります。都道府県名は災害の名称、場所、概要から検索されます。</p>
+            </div>
+
+            <!-- 検索ボタン -->
+            <button id="searchBtn" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 px-10 rounded-full shadow-md hover:shadow-lg transition duration-200 flex items-center mx-auto text-lg transform hover:-translate-y-0.5">
+                <i class="fa-solid fa-magnifying-glass mr-2"></i> この条件で検索
+            </button>
+            <p class="text-xs text-slate-400 mt-4">Data powered by Wikidata API / Wikipedia API</p>
+        </div>
+
+        <!-- メッセージボックス -->
+        <div id="messageBox" class="hidden rounded-lg p-4 mb-8 text-center font-medium shadow-sm"></div>
+
+        <!-- ローディングインジケーター -->
+        <div id="loadingIndicator" class="hidden flex-col items-center justify-center py-16">
+            <i class="fa-solid fa-circle-notch fa-spin text-5xl text-sky-600 mb-4"></i>
+            <p class="text-slate-700 font-medium text-lg">データを検索しています...</p>
+            <p class="text-sm text-slate-500 mt-2">※Wikipediaの補完処理を含め数秒かかる場合があります</p>
+        </div>
+
+        <!-- ソートUI (結果がある時だけ表示) -->
+        <div id="sortContainer" class="hidden flex flex-col sm:flex-row justify-between items-center mb-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+            <h3 class="text-md font-bold text-slate-700 mb-2 sm:mb-0"><i class="fa-solid fa-list mr-1"></i> 検索結果</h3>
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-slate-600">並び替え:</span>
+                <select id="sortSelect" class="border border-slate-300 rounded-lg px-3 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-medium cursor-pointer">
+                    <option value="newest">新しい順（発生年）</option>
+                    <option value="oldest">古い順（発生年）</option>
+                    <option value="date">日付順（1月〜12月）</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 検索結果表示エリア -->
+        <div id="resultsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 結果のカードがここに動的に追加されます -->
+        </div>
+
+    </main>
+
+    <!-- フッター -->
+    <footer class="bg-slate-800 text-slate-400 text-center py-6 mt-auto">
+        <p class="text-sm">&copy; <span id="currentYear"></span> 災害アーカイブ検索.</p>
+    </footer>
+
+    <!-- アプリケーションロジック -->
+    <script>
+        // DOM要素の取得
+        const monthSelect = document.getElementById('monthSelect');
+        const daySelect = document.getElementById('daySelect');
+        const daysRange = document.getElementById('daysRange');
+        const daysValue = document.getElementById('daysValue');
+        const searchBtn = document.getElementById('searchBtn');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const messageBox = document.getElementById('messageBox');
+        const prefecturesContainer = document.getElementById('prefecturesContainer');
+        const clearPrefsBtn = document.getElementById('clearPrefsBtn');
+        const sortContainer = document.getElementById('sortContainer');
+        const sortSelect = document.getElementById('sortSelect');
+
+        // グローバル変数として検索結果を保持（ソート用）
+        let currentProcessedData = [];
+
+        // 都道府県リスト
+        const PREFECTURES = [
+            '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
+            '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
+            '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県',
+            '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県',
+            '奈良県', '和歌山県', '鳥取県', '島根県', '岡山県', '広島県', '山口県',
+            '徳島県', '香川県', '愛媛県', '高知県', '福岡県', '佐賀県', '長崎県',
+            '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'
+        ];
+        
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // HTMLエスケープ（Wikidata/Wikipedia由来のテキストをinnerHTMLに埋め込む前に必ず通す）
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // UI初期化
+        function initUI() {
+            // 月の選択肢
+            for (let i = 1; i <= 12; i++) {
+                const option = document.createElement('option');
+                option.value = i; option.textContent = i;
+                monthSelect.appendChild(option);
+            }
+
+            // 日の選択肢
+            updateDays();
+            monthSelect.addEventListener('change', updateDays);
+
+            // 今日の日付をセット
+            const today = new Date();
+            monthSelect.value = today.getMonth() + 1;
+            updateDays();
+            daySelect.value = today.getDate();
+
+            // 都道府県チェックボックスの生成
+            PREFECTURES.forEach(pref => {
+                const label = document.createElement('label');
+                label.className = 'flex items-center space-x-2 cursor-pointer p-1.5 hover:bg-white rounded transition select-none';
+                label.innerHTML = `
+                    <input type="checkbox" value="${pref}" class="pref-checkbox w-4 h-4 text-sky-600 bg-white border-slate-300 rounded focus:ring-sky-500 cursor-pointer">
+                    <span class="text-sm font-medium text-slate-700">${pref}</span>
+                `;
+                prefecturesContainer.appendChild(label);
+            });
+
+            // すべてクリアボタン
+            clearPrefsBtn.addEventListener('click', () => {
+                document.querySelectorAll('.pref-checkbox').forEach(cb => cb.checked = false);
+            });
+
+            // スライダーのイベント
+            daysRange.addEventListener('input', (e) => {
+                daysValue.textContent = e.target.value;
+            });
+
+            // ソートのイベント
+            sortSelect.addEventListener('change', () => {
+                if (currentProcessedData.length > 0) {
+                    renderSortedResults();
+                }
+            });
+        }
+
+        // 月に応じた日数の更新
+        function updateDays() {
+            const month = parseInt(monthSelect.value);
+            let daysInMonth = 31;
+            if (month === 2) daysInMonth = 29; 
+            else if ([4, 6, 9, 11].includes(month)) daysInMonth = 30;
+
+            const currentDay = parseInt(daySelect.value) || 1;
+            daySelect.innerHTML = '';
+
+            for (let i = 1; i <= daysInMonth; i++) {
+                const option = document.createElement('option');
+                option.value = i; option.textContent = i;
+                daySelect.appendChild(option);
+            }
+            daySelect.value = currentDay > daysInMonth ? daysInMonth : currentDay;
+        }
+
+        // うるう年判定
+        function isLeapYear(year) {
+            return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+        }
+
+        // 指定年に month/day を安全に配置する（2/29が存在しない年は2/28にクランプしてロールオーバーを防ぐ）
+        function safeDateInYear(year, month, day) {
+            if (month === 1 && day === 29 && !isLeapYear(year)) {
+                day = 28;
+            }
+            return new Date(year, month, day);
+        }
+
+        // 日付が指定範囲以内か判定
+        function isWithinXDays(targetMonth, targetDay, disasterDateStr, rangeDays) {
+            const dDate = new Date(disasterDateStr);
+            if (isNaN(dDate.getTime())) return false;
+            
+            const t1 = safeDateInYear(2004, targetMonth - 1, targetDay);
+            const diffs = [2003, 2004, 2005].map(year => {
+                const d = safeDateInYear(year, dDate.getMonth(), dDate.getDate());
+                return Math.abs(t1 - d) / (1000 * 60 * 60 * 24);
+            });
+            return Math.min(...diffs) <= rangeDays;
+        }
+
+        // Wikidataデータ取得
+        async function fetchDisasters(targetMonth) {
+            const monthsToQuery = [
+                targetMonth === 1 ? 12 : targetMonth - 1, targetMonth, targetMonth === 12 ? 1 : targetMonth + 1
+            ];
+
+            const query = `
+                SELECT DISTINCT ?disaster ?disasterLabel 
+                  (GROUP_CONCAT(DISTINCT ?typeLabel; separator=", ") AS ?types) 
+                  (GROUP_CONCAT(DISTINCT ?locationLabel; separator=", ") AS ?locations) 
+                  ?date 
+                  (SAMPLE(?desc) as ?description) 
+                  (MAX(?mag) as ?magnitude) 
+                  (SAMPLE(?article) as ?wikipediaUrl) 
+                WHERE {
+                  ?disaster wdt:P31/wdt:P279* wd:Q8065 ;
+                            wdt:P17 wd:Q17 .
+                  
+                  { ?disaster wdt:P585 ?date . } UNION { ?disaster wdt:P580 ?date . }
+                  FILTER(MONTH(?date) IN (${monthsToQuery.join(",")}))
+                  
+                  ?disaster rdfs:label ?disasterLabel .
+                  FILTER(LANG(?disasterLabel) = "ja")
+                  
+                  OPTIONAL { ?disaster wdt:P31 ?typeItem . ?typeItem rdfs:label ?typeLabel . FILTER(LANG(?typeLabel) = "ja") }
+                  OPTIONAL { ?disaster wdt:P276|wdt:P131 ?locationItem . ?locationItem rdfs:label ?locationLabel . FILTER(LANG(?locationLabel) = "ja") }
+                  OPTIONAL { ?disaster schema:description ?desc . FILTER(LANG(?desc) = "ja") }
+                  OPTIONAL { ?disaster wdt:P2522|wdt:P1086|wdt:P4024 ?mag . }
+                  OPTIONAL { ?article schema:about ?disaster ; schema:isPartOf <https://ja.wikipedia.org/> . }
+                } GROUP BY ?disaster ?disasterLabel ?date
+            `;
+
+            const url = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(query)}`;
+
+            let response;
+            try {
+                response = await fetch(url, { headers: { 'Accept': 'application/sparql-results+json' } });
+            } catch (networkError) {
+                throw new Error('ネットワークエラーが発生しました。通信環境をご確認のうえ、再度お試しください。');
+            }
+
+            if (!response.ok) {
+                throw new Error('Wikidataからのデータ取得に失敗しました。時間をおいて再度お試しください。');
+            }
+
+            try {
+                return await response.json();
+            } catch (parseError) {
+                throw new Error('Wikidataからの応答を正しく読み取れませんでした。時間をおいて再度お試しください。');
+            }
+        }
+
+        // データのフィルタリングと処理
+        function processResults(bindings, targetMonth, targetDay, rangeDays) {
+            const filtered = [];
+            const seenIds = new Set();
+            const currentYear = new Date().getFullYear();
+            
+            // 選択された都道府県名の配列を取得
+            const selectedPrefectures = Array.from(document.querySelectorAll('.pref-checkbox:checked')).map(cb => cb.value);
+
+            bindings.forEach(item => {
+                const dateStr = item.date.value;
+                const disasterId = item.disaster.value;
+                if (seenIds.has(disasterId)) return;
+
+                const label = item.disasterLabel.value;
+                if (label.match(/^Q\d+$/) || /^[a-zA-Z0-9\s\-.,()]+$/.test(label)) return;
+
+                if (isWithinXDays(targetMonth, targetDay, dateStr, rangeDays)) {
+                    const types = item.types?.value || '災害';
+                    const locations = item.locations?.value || '日本国内 (詳細不明)';
+                    const desc = item.description?.value || '概要情報が登録されていません。';
+
+                    // 都道府県での絞り込み処理
+                    if (selectedPrefectures.length > 0) {
+                        const searchText = `${label} ${types} ${locations} ${desc}`;
+                        // いずれかの選択された都道府県がテキストに含まれていればマッチ
+                        const isMatch = selectedPrefectures.some(pref => searchText.includes(pref));
+                        if (!isMatch) return; // マッチしなければスキップ
+                    }
+
+                    seenIds.add(disasterId);
+                    const dDate = new Date(dateStr);
+                    const disasterYear = dDate.getFullYear();
+                    if(disasterYear < 0 || disasterYear > currentYear) return;
+
+                    filtered.push({
+                        name: label,
+                        type: types,
+                        location: locations,
+                        dateStr: `${disasterYear}年${dDate.getMonth() + 1}月${dDate.getDate()}日`,
+                        yearsAgo: currentYear - disasterYear,
+                        description: desc,
+                        magnitude: item.magnitude ? parseFloat(item.magnitude.value).toFixed(1) : null,
+                        wikipediaUrl: item.wikipediaUrl ? item.wikipediaUrl.value : null,
+                        timestamp: dDate.getTime()
+                    });
+                } // 欠落していた閉じカッコを補填
+            }); // 欠落していた閉じカッコを補填
+            
+            // デフォルトは新しい順
+            return filtered.sort((a, b) => b.timestamp - a.timestamp);
+        }
+
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = `rounded-lg p-4 mb-8 text-center font-medium shadow-sm border fade-in ${
+                isError ? 'bg-red-100 text-red-700 border-red-200' : 'bg-sky-100 text-sky-800 border-sky-200'
+            }`;
+        }
+
+        // 画面描画（データ保存とUI制御）
+        function renderResults(results, targetMonth, targetDay, rangeDays) {
+            currentProcessedData = results; // ソート用に保持
+            
+            const selectedPrefs = Array.from(document.querySelectorAll('.pref-checkbox:checked')).map(cb => cb.value);
+            const prefText = selectedPrefs.length > 0 ? `（${selectedPrefs.join('、')}）` : '（全国）';
+
+            if (results.length === 0) {
+                sortContainer.classList.add('hidden');
+                resultsContainer.innerHTML = '';
+                showMessage(`${targetMonth}月${targetDay}日の前後${rangeDays}日間に発生した災害データ${prefText}は見つかりませんでした。`, false);
+                return;
+            }
+
+            sortContainer.classList.remove('hidden');
+            showMessage(`${targetMonth}月${targetDay}日の前後${rangeDays}日間に発生した災害${prefText}が ${results.length} 件見つかりました。`, false);
+            
+            // ソート状態をリセットせずに現在の選択で描画
+            renderSortedResults();
+        }
+
+        // ソート適用とカードの生成
+        function renderSortedResults() {
+            resultsContainer.innerHTML = '';
+            const order = sortSelect.value;
+            
+            // 配列のコピーを作成してソート
+            let sortedResults = [...currentProcessedData];
+            
+            if (order === 'newest') {
+                sortedResults.sort((a, b) => b.timestamp - a.timestamp);
+            } else if (order === 'oldest') {
+                sortedResults.sort((a, b) => a.timestamp - b.timestamp);
+            } else if (order === 'date') {
+                // 日付順（発生年は無視して、1月1日から12月31日の順に並べる）
+                sortedResults.sort((a, b) => {
+                    const dateA = new Date(a.timestamp);
+                    const dateB = new Date(b.timestamp);
+                    const mdA = (dateA.getMonth() + 1) * 100 + dateA.getDate();
+                    const mdB = (dateB.getMonth() + 1) * 100 + dateB.getDate();
+                    return mdA - mdB;
+                });
+            }
+
+            const wikiFetchQueue = []; // Wikipedia補完リクエストをためて後でまとめて（同時実行数を抑えて）処理する
+
+            sortedResults.forEach((data, index) => {
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-xl shadow border border-slate-200 p-6 flex flex-col fade-in relative overflow-hidden';
+                card.style.animationDelay = `${(index % 10) * 0.05}s`; // 最大0.5秒のディレイでループ
+
+                const isEarthquake = data.type.includes('地震') || data.name.includes('地震');
+                const magId = `mag-${data.timestamp}-${index}`;
+                const intensityId = `intensity-${data.timestamp}-${index}`;
+                const damageId = `damage-${data.timestamp}-${index}`;
+                const damageContainerId = `damage-container-${data.timestamp}-${index}`;
+
+                let earthquakeInfo = '';
+                if (isEarthquake) {
+                    const mag = data.magnitude ? `M${data.magnitude}` : '不明';
+                    earthquakeInfo = `
+                        <div class="flex flex-wrap gap-3 mb-4 bg-amber-50 p-3 rounded-lg border border-amber-200 shadow-inner">
+                            <div class="text-amber-800 text-sm font-medium whitespace-nowrap"><i class="fa-solid fa-wave-square mr-1"></i>マグニチュード: <span id="${magId}" class="text-lg font-bold">${mag}</span></div>
+                            <div class="text-amber-800 text-sm font-medium whitespace-nowrap"><i class="fa-solid fa-house-crack mr-1"></i>最大震度: <span id="${intensityId}" class="text-lg font-bold text-amber-600/60">不明</span></div>
+                        </div>
+                    `;
+                }
+
+                // 被害状況の表示枠（初期状態は非表示）
+                let damageInfo = `
+                    <div id="${damageContainerId}" class="hidden mt-3 bg-rose-50 p-3 rounded-lg border border-rose-200 shadow-inner">
+                        <div class="text-rose-800 text-sm font-bold mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i>被害の概要</div>
+                        <div id="${damageId}" class="text-rose-700 text-sm leading-relaxed space-y-1"></div>
+                    </div>
+                `;
+
+                // Wikipedia URLはSPARQLの schema:isPartOf 制約で ja.wikipedia.org に限定されているはずだが、
+                // href属性として出力する前に念のため再検証する（防御的多層化）
+                const isSafeWikiUrl = typeof data.wikipediaUrl === 'string' && /^https:\/\/ja\.wikipedia\.org\//.test(data.wikipediaUrl);
+
+                let wikiButton = isSafeWikiUrl ? `
+                    <div class="mt-5 pt-4 border-t border-slate-100">
+                        <a href="${escapeHtml(data.wikipediaUrl)}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-700 font-medium py-2.5 px-4 rounded-lg transition duration-200 border border-slate-300 hover:border-sky-300">
+                            <i class="fa-brands fa-wikipedia-w mr-2"></i> Wikipediaで詳細を見る
+                        </a>
+                    </div>
+                ` : '';
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-3 gap-2">
+                        <span class="inline-block bg-sky-100 text-sky-800 text-xs px-2.5 py-1 rounded-full font-semibold border border-sky-200 whitespace-nowrap">
+                            ${escapeHtml(data.type)}
+                        </span>
+                        <span class="bg-red-50 text-red-600 font-bold px-3 py-1 rounded-full text-sm border border-red-200 shadow-sm whitespace-nowrap">
+                            発生から <span class="text-base">${data.yearsAgo}</span> 年
+                        </span>
+                    </div>
+                    
+                    <h3 class="text-xl font-bold text-slate-800 mb-3 leading-tight">${escapeHtml(data.name)}</h3>
+                    
+                    ${earthquakeInfo}
+                    
+                    <div class="text-slate-600 text-sm mb-4 space-y-1.5">
+                        <p class="flex items-center"><i class="fa-regular fa-calendar text-slate-400 w-5"></i> <span class="font-medium">${escapeHtml(data.dateStr)}</span> 発生</p>
+                        <p class="flex items-start"><i class="fa-solid fa-location-dot text-slate-400 w-5 mt-1"></i> <span>${escapeHtml(data.location)}</span></p>
+                    </div>
+                    
+                    <div class="mt-auto">
+                        <p class="text-slate-700 text-sm leading-relaxed">${escapeHtml(data.description)}</p>
+                        ${damageInfo}
+                    </div>
+                    
+                    ${wikiButton}
+                `;
+                resultsContainer.appendChild(card);
+
+                if (isSafeWikiUrl) {
+                    wikiFetchQueue.push({ url: data.wikipediaUrl, isEarthquake, magId, intensityId, damageId, damageContainerId });
+                }
+            });
+
+            // Wikipedia詳細情報を同時実行数を抑えつつバックグラウンドで取得
+            processWikiQueue(wikiFetchQueue);
+        }
+
+        // Wikipediaスクレイピング処理 (被害概要の取得機能を追加)
+        async function fetchWikipediaDetails(wikipediaUrl, isEarthquake, magElementId, intensityElementId, damageElementId, damageContainerId) {
+            try {
+                const title = decodeURIComponent(wikipediaUrl.split('/').pop());
+                const apiUrl = `https://ja.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&prop=text&format=json&redirects=1&origin=*`;
+                
+                const response = await fetch(apiUrl);
+                if (!response.ok) return;
+                const data = await response.json();
+                if (!data.parse || !data.parse.text) return;
+                
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(data.parse.text['*'], 'text/html');
+                
+                const infobox = doc.querySelector('table.infobox');
+                if (!infobox) return;
+                
+                let mag = null;
+                let intensity = null;
+                let damages = [];
+                
+                const rows = infobox.querySelectorAll('tr');
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    const th = row.querySelector('th');
+                    
+                    if (th) {
+                        const thText = th.textContent.trim();
+                        let tdText = '';
+                        
+                        const td = row.querySelector('td');
+                        if (td) {
+                            tdText = td.textContent;
+                        } 
+                        else if (i + 1 < rows.length) {
+                            const nextRowTd = rows[i+1].querySelector('td');
+                            if (nextRowTd && rows[i+1].querySelectorAll('th').length === 0) {
+                                tdText = nextRowTd.textContent;
+                            }
+                        }
+
+                        if (tdText) {
+                            const cleanText = tdText.replace(/\[\d+\]/g, '').replace(/\[注\s*\d+\]/g, '').replace(/\[注釈\s*\d+\]/g, '').replace(/\n/g, ' ').trim();
+                            
+                            if (isEarthquake) {
+                                if ((thText.includes('マグニチュード') || thText.includes('規模')) && !mag) {
+                                    mag = cleanText;
+                                }
+                                if ((thText.includes('最大震度') || thText.includes('震度')) && !intensity) {
+                                    intensity = cleanText;
+                                }
+                            }
+
+                            // 被害に関する項目を抽出
+                            if (thText.includes('被害') || thText.includes('死者') || thText.includes('負傷者') || thText.includes('行方不明') || thText.includes('死傷者') || thText.includes('人的被害') || thText.includes('建物被害')) {
+                                damages.push(`<b>${escapeHtml(thText)}:</b> ${escapeHtml(cleanText)}`);
+                            }
+                        }
+                    }
+                }
+                
+                // 地震情報の反映
+                if (isEarthquake) {
+                    const magElement = document.getElementById(magElementId);
+                    const intensityElement = document.getElementById(intensityElementId);
+                    
+                    if (magElement && mag) {
+                        magElement.textContent = /^[0-9.]+$/.test(mag) ? `M${mag}` : mag;
+                    }
+                    if (intensityElement && intensity) {
+                        intensityElement.textContent = intensity;
+                        intensityElement.classList.remove('text-amber-600/60');
+                    }
+                }
+
+                // 被害概要の反映
+                const damageContainer = document.getElementById(damageContainerId);
+                const damageElement = document.getElementById(damageElementId);
+                if (damageContainer && damageElement && damages.length > 0) {
+                    // HTMLとして流し込み（<b>タグで項目名を強調）
+                    damageElement.innerHTML = damages.join('<br>');
+                    damageContainer.classList.remove('hidden');
+                }
+
+            } catch (error) {
+                console.error(`Wikipediaデータ抽出エラー:`, error);
+            }
+        }
+
+        // Wikipedia補完リクエストを同時実行数を絞って処理する（大量の結果でAPIに負荷をかけすぎないため）
+        async function processWikiQueue(queue, concurrency = 5) {
+            let cursor = 0;
+            async function worker() {
+                while (cursor < queue.length) {
+                    const item = queue[cursor++];
+                    await fetchWikipediaDetails(
+                        item.url, item.isEarthquake, item.magId, item.intensityId, item.damageId, item.damageContainerId
+                    );
+                }
+            }
+            const workerCount = Math.min(concurrency, queue.length);
+            await Promise.all(Array.from({ length: workerCount }, worker));
+        }
+
+        // 検索実行
+        async function handleSearch() {
+            const month = parseInt(monthSelect.value);
+            const day = parseInt(daySelect.value);
+            const rangeDays = parseInt(daysRange.value); // スライダーの値を取得
+
+            resultsContainer.innerHTML = '';
+            sortContainer.classList.add('hidden');
+            messageBox.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+            loadingIndicator.classList.add('flex');
+            searchBtn.disabled = true;
+            searchBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            try {
+                const rawData = await fetchDisasters(month); 
+                const processedResults = processResults(rawData.results.bindings, month, day, rangeDays); // rangeDaysを渡す
+                renderResults(processedResults, month, day, rangeDays);
+            } catch (error) {
+                console.error(error);
+                showMessage(error.message, true);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+                loadingIndicator.classList.remove('flex');
+                searchBtn.disabled = false;
+                searchBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        initUI();
+        searchBtn.addEventListener('click', handleSearch);
+        window.addEventListener('DOMContentLoaded', handleSearch);
+
+    </script>
+</body>
+</html>
