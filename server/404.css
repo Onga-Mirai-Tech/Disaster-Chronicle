@@ -1,0 +1,7 @@
+/* 404.html 用のスタイル（CSP で style 属性・<style> を許可していないため、別ファイルにしている） */
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8fafc; color: #1e293b; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; padding: 16px; box-sizing: border-box; }
+main { max-width: 420px; text-align: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px 24px; }
+h1 { font-size: 1.25rem; margin: 0 0 12px; }
+p { font-size: 0.9rem; line-height: 1.7; margin: 0 0 24px; color: #475569; }
+a { display: inline-block; background: #0369a1; color: #fff; text-decoration: none; font-weight: bold; padding: 12px 24px; border-radius: 12px; }
+a:hover { background: #075985; }

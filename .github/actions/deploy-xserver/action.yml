@@ -1,0 +1,95 @@
+# Xserver へのデプロイ手順（ビルド → デプロイ先の確認 → rsync(SSH)）。
+# .github/workflows/deploy.yml の deploy / deploy-retry の両方のジョブから使う。
+# 事前に actions/checkout を実行しておくこと。
+name: Deploy to Xserver
+description: Build the site and sync dist/ to Xserver over SSH (rsync)
+
+inputs:
+  ssh-key:
+    description: デプロイ用 SSH 秘密鍵
+    required: true
+  known-hosts:
+    description: ssh-keyscan の出力
+    required: true
+  host:
+    description: SSH ホスト名
+    required: true
+  user:
+    description: SSH ユーザー名
+    required: true
+  port:
+    description: SSH ポート
+    required: false
+    default: '10022'
+  deploy-path:
+    description: デプロイ先ディレクトリ（public_html 配下）
+    required: true
+  dry-run:
+    description: "'true' のとき rsync を --dry-run で実行する"
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22
+        cache: npm
+
+    - name: Build
+      shell: bash
+      run: |
+        npm ci
+        bash scripts/build.sh
+
+    - name: Validate deploy path
+      shell: bash
+      env:
+        DEPLOY_PATH: ${{ inputs.deploy-path }}
+      run: |
+        # rsync --delete で意図しないディレクトリ（メインドメインの public_html 直下など）を
+        # 消してしまわないよう、public_html 配下のサブディレクトリであることを確認する
+        case "${DEPLOY_PATH%/}" in
+          */public_html/?*) ;;
+          *) echo "::error::XSERVER_DEPLOY_PATH は public_html 配下のサブドメイン用ディレクトリを指定してください"; exit 1 ;;
+        esac
+
+    - name: Setup SSH
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        install -m 700 -d ~/.ssh
+        printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+
+    - name: Deploy (rsync)
+      shell: bash
+      env:
+        HOST: ${{ inputs.host }}
+        USER: ${{ inputs.user }}
+        PORT: ${{ inputs.port }}
+        DEPLOY_PATH: ${{ inputs.deploy-path }}
+        DRY_RUN: ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
+      run: |
+        # 一時的な接続失敗に備えて、同じ実行環境で2回まで試す
+        # （rsync は差分同期なので、途中で失敗しても再実行して問題ない）
+        for attempt in 1 2; do
+          if rsync -rlcv --delete $DRY_RUN \
+            --chmod=D755,F644 \
+            --exclude='.well-known/' \
+            --exclude='.user.ini' \
+            -e "ssh -p $PORT -i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=30" \
+            dist/ "$USER@$HOST:${DEPLOY_PATH%/}/"; then
+            rm -f ~/.ssh/deploy_key
+            exit 0
+          fi
+          echo "::warning::rsync に失敗しました（${attempt}/2 回目）"
+          [ "$attempt" -lt 2 ] && sleep 20
+        done
+        rm -f ~/.ssh/deploy_key
+        exit 1

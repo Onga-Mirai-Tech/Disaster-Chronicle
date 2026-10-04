@@ -1,0 +1,122 @@
+# main ブランチへの push で、Xserver に SSH(rsync) でデプロイする。
+# Pull Request では公開ファイルの組み立て（build）だけを行い、デプロイはしない。
+#
+# 必要な設定（GitHub > Settings > Environments > production）:
+#   Variables: DEPLOY_ENABLED = true   ← これが true になるまでデプロイは実行されない
+#              XSERVER_SSH_PORT        （省略時 10022）
+#   Secrets  : XSERVER_SSH_HOST, XSERVER_SSH_USER, XSERVER_SSH_KEY,
+#              XSERVER_KNOWN_HOSTS, XSERVER_DEPLOY_PATH
+# 詳しい手順は docs/deploy-xserver.md を参照。
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'rsync を --dry-run で実行する（サーバーは変更しない）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: bash scripts/build.sh
+
+  # Xserver は、GitHub Actions の実行環境の IP アドレスによっては SSH 接続がタイムアウトすることがある
+  # （同じ実行環境で再試行しても IP は変わらない）。そのため deploy が失敗したら、
+  # 別の実行環境（別の IP）で動く deploy-retry ジョブでもう一度デプロイする。
+  deploy:
+    needs: build
+    # フォークや PR からは実行しない（シークレットはこのリポジトリの main でのみ使う）
+    if: >-
+      github.repository == 'Onga-Mirai-Tech/Disaster-Chronicle' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # 失敗しても deploy-retry が成功すればワークフロー全体は成功扱いにする
+    continue-on-error: true
+    environment:
+      name: production
+      url: https://disaster-chronicle.onga-mirai-tech.com/
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    outputs:
+      result: ${{ steps.result.outputs.result }}
+    steps:
+      - name: Check deploy is enabled
+        id: gate
+        env:
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+        run: |
+          if [ "$DEPLOY_ENABLED" != "true" ]; then
+            echo "::notice::DEPLOY_ENABLED が true ではないため、デプロイをスキップしました。"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.enabled == 'true'
+
+      - uses: ./.github/actions/deploy-xserver
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          ssh-key: ${{ secrets.XSERVER_SSH_KEY }}
+          known-hosts: ${{ secrets.XSERVER_KNOWN_HOSTS }}
+          host: ${{ secrets.XSERVER_SSH_HOST }}
+          user: ${{ secrets.XSERVER_SSH_USER }}
+          port: ${{ vars.XSERVER_SSH_PORT || '10022' }}
+          deploy-path: ${{ secrets.XSERVER_DEPLOY_PATH }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
+
+      # ここまで到達したら成功（途中で失敗すると result は空になり、deploy-retry が動く）
+      - name: Record result
+        id: result
+        run: echo "result=${{ steps.gate.outputs.enabled == 'true' && 'deployed' || 'skipped' }}" >> "$GITHUB_OUTPUT"
+
+  deploy-retry:
+    needs: deploy
+    if: >-
+      always() &&
+      needs.deploy.result != 'skipped' &&
+      needs.deploy.result != 'cancelled' &&
+      needs.deploy.outputs.result != 'deployed' &&
+      needs.deploy.outputs.result != 'skipped'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://disaster-chronicle.onga-mirai-tech.com/
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - run: echo "::warning::最初のデプロイに失敗したため、別の実行環境で再試行します。"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/deploy-xserver
+        with:
+          ssh-key: ${{ secrets.XSERVER_SSH_KEY }}
+          known-hosts: ${{ secrets.XSERVER_KNOWN_HOSTS }}
+          host: ${{ secrets.XSERVER_SSH_HOST }}
+          user: ${{ secrets.XSERVER_SSH_USER }}
+          port: ${{ vars.XSERVER_SSH_PORT || '10022' }}
+          deploy-path: ${{ secrets.XSERVER_DEPLOY_PATH }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
