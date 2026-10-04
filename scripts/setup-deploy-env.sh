@@ -51,8 +51,13 @@ echo "-- Environment を作成し、main ブランチのみデプロイできる
 gh api -X PUT "repos/${REPO}/environments/production" \
   -F 'deployment_branch_policy[protected_branches]=false' \
   -F 'deployment_branch_policy[custom_branch_policies]=true' >/dev/null
-# 既に登録済みの場合は無視する
-gh api -X POST "repos/${REPO}/environments/production/deployment-branches" -f name=main >/dev/null 2>&1 || true
+# 既に main が登録済みの場合（422）だけ無視する。それ以外の失敗は止める
+if ! out="$(gh api -X POST "repos/${REPO}/environments/production/deployment-branch-policies" -f name=main -f type=branch 2>&1)"; then
+  case "$out" in
+    *"already exists"*|*"Name has already been taken"*|*422*) ;;
+    *) echo "$out" >&2; exit 1 ;;
+  esac
+fi
 
 echo "-- Secrets / Variables を登録します"
 gh secret set XSERVER_SSH_HOST     --env production --repo "$REPO" --body "$SSH_HOST"
