@@ -70,6 +70,8 @@ main へ push
 
 ## 2. GitHub 側の設定
 
+> **自動で設定する場合（推奨）:** `gh auth login` 済みの Mac で `bash scripts/setup-deploy-env.sh` を実行すると、下記の Environment・Secrets・Variables を対話式で登録します（鍵や接続情報はチャットやファイルに残りません）。手動で設定する場合は以下の手順です。
+
 リポジトリの **Settings → Environments → New environment** で `production` を作成し、**Deployment branches and tags** を「Selected branches and tags」にして `main` のみ許可します。そのうえで以下を登録します。
 
 ### Environment secrets
