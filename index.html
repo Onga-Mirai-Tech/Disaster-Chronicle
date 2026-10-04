@@ -83,7 +83,7 @@
                         <!-- JSで都道府県チェックボックスを生成 -->
                     </div>
                 </div>
-                <p class="text-xs text-slate-500 mt-2 ml-1">※未選択の場合は「全国」が対象になります。都道府県名は災害の名称、場所、概要から検索されます。</p>
+                <p class="text-xs text-slate-500 mt-2 ml-1">※未選択の場合は「全国」が対象になります。災害の所在地の登録情報（市町村から都道府県を判定）と、名称・場所・概要に含まれる地名（都道府県名・旧国名・地方名・県庁所在地など）から絞り込みます。場所が登録されていない災害は、絞り込むと表示されないことがあります。</p>
             </fieldset>
 
             <!-- 検索ボタン -->
@@ -139,6 +139,7 @@
         </div>
     </footer>
 
+    <script src="js/places.js"></script>
     <script src="js/logic.js"></script>
     <script src="js/app.js"></script>
 </body>
