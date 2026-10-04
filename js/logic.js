@@ -2,11 +2,11 @@
 // ブラウザでは window.DisasterLogic として、Node のテスト（tests/）では require() で使う。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./places.js'));
   } else {
-    root.DisasterLogic = factory();
+    root.DisasterLogic = factory(root.DisasterPlaces);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (places) {
   'use strict';
 
   // 日単位まで分かっている日付だけを使う（Wikidata の timePrecision: 9=年, 10=月, 11=日）。
@@ -41,6 +41,7 @@
 SELECT ?disaster ?disasterLabel
   (GROUP_CONCAT(DISTINCT ?typeLabel; separator=", ") AS ?types)
   (GROUP_CONCAT(DISTINCT ?locationLabel; separator=", ") AS ?locations)
+  (GROUP_CONCAT(DISTINCT ?prefectureLabel; separator=", ") AS ?prefectures)
   ?date ?precision
   (SAMPLE(?desc) AS ?description)
   (MAX(?mw) AS ?magnitudeMw)
@@ -61,6 +62,14 @@ WHERE {
 
   OPTIONAL { ?disaster wdt:P31 ?typeItem . ?typeItem rdfs:label ?typeLabel . FILTER(LANG(?typeLabel) = "ja") }
   OPTIONAL { ?disaster wdt:P276|wdt:P131 ?locationItem . ?locationItem rdfs:label ?locationLabel . FILTER(LANG(?locationLabel) = "ja") }
+  # 所在地（市町村など）から行政区域の階層（P131）をたどり、都道府県を求める
+  OPTIONAL {
+    ?disaster wdt:P276|wdt:P131 ?placeItem .
+    ?placeItem wdt:P131* ?prefectureItem .
+    ?prefectureItem wdt:P31 wd:Q50337 ;
+                    rdfs:label ?prefectureLabel .
+    FILTER(LANG(?prefectureLabel) = "ja")
+  }
   OPTIONAL { ?disaster schema:description ?desc . FILTER(LANG(?desc) = "ja") }
   OPTIONAL { ?disaster wdt:P2527 ?mw . }
   OPTIONAL { ?disaster wdt:P2528 ?ml . }
@@ -125,6 +134,34 @@ WHERE {
       .replace(/\sstyle\s*=\s*("[^"]*"|'[^']*')/gi, '');
   }
 
+  // 災害が関係する都道府県を求める。次の3つを合わせる（広めに拾う方針。絞り込みで取りこぼすより、余分に出るほうがよい）。
+  //  1. Wikidata の所在地の階層から求めた都道府県（wikidataPrefectures。「福岡市」だけの登録でも「福岡県」が分かる）
+  //  2. 名称・種類・場所・概要に含まれる都道府県名
+  //  3. 名称・種類・場所・概要に含まれる旧国名・地方名・県庁所在地/政令市（js/places.js の対応表）
+  function resolvePrefectures({ name, type, location, description, wikidataPrefectures }) {
+    const found = new Set();
+    for (const pref of String(wikidataPrefectures || '').split(', ')) {
+      if (PREFECTURES.includes(pref)) found.add(pref);
+    }
+
+    let text = `${name} ${type} ${location} ${description}`;
+    for (const pref of PREFECTURES) {
+      if (text.includes(pref)) found.add(pref);
+    }
+
+    const { PLACE_ALIASES, MASKED_PLACES } = places;
+    for (const [place, prefs] of Object.entries(MASKED_PLACES)) {
+      if (text.includes(place)) {
+        prefs.forEach(pref => found.add(pref));
+        text = text.split(place).join(' ');
+      }
+    }
+    for (const [place, prefs] of Object.entries(PLACE_ALIASES)) {
+      if (text.includes(place)) prefs.forEach(pref => found.add(pref));
+    }
+    return [...found];
+  }
+
   // SPARQL の結果から、指定した範囲に入る災害だけを取り出して整形する。
   // options: { month, day, rangeDays, prefectures: string[], currentYear }
   function processResults(bindings, options) {
@@ -153,16 +190,17 @@ WHERE {
       const location = item.locations?.value || '日本国内 (詳細不明)';
       const description = item.description?.value || '概要情報が登録されていません。';
 
-      if (prefectures.length > 0) {
-        const searchText = `${name} ${type} ${location} ${description}`;
-        if (!prefectures.some(pref => searchText.includes(pref))) continue;
-      }
+      const itemPrefectures = resolvePrefectures({
+        name, type, location, description, wikidataPrefectures: item.prefectures?.value
+      });
+      if (prefectures.length > 0 && !prefectures.some(pref => itemPrefectures.includes(pref))) continue;
 
       seenIds.add(id);
       results.push({
         name,
         type,
         location,
+        prefectures: itemPrefectures,
         year: date.year,
         month: date.month,
         day: date.day,
@@ -201,6 +239,7 @@ WHERE {
     parseWikidataDate,
     isWithinXDays,
     extractWikiTitle,
+    resolvePrefectures,
     stripInlineStyles,
     processResults,
     sortResults

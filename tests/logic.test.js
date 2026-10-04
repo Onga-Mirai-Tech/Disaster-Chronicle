@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const L = require('../js/logic.js');
+const Places = require('../js/places.js');
 
 // SPARQL の1行ぶんを作る
 function row(overrides = {}) {
@@ -157,6 +158,76 @@ test('extractWikiTitle: ja.wikipedia.org の記事URLだけを受け付ける', 
   ]) {
     assert.equal(L.extractWikiTitle(bad), null, String(bad));
   }
+});
+
+// ---------------------------------------------------------------
+test('places: 対応表の値はすべて実在する都道府県で、キーは空でない', () => {
+  for (const [place, prefs] of Object.entries(Places.PLACE_ALIASES)) {
+    assert.ok(place.length >= 2, place);
+    assert.ok(prefs.length > 0, place);
+    for (const pref of prefs) assert.ok(L.PREFECTURES.includes(pref), `${place} → ${pref}`);
+  }
+  for (const [place, prefs] of Object.entries(Places.MASKED_PLACES)) {
+    for (const pref of prefs) assert.ok(L.PREFECTURES.includes(pref), `${place} → ${pref}`);
+  }
+});
+
+test('places: 旧国名は令制国68（66か国＋壱岐・対馬）がそろい、県庁所在地・政令市の表に主要都市を含む', () => {
+  assert.equal(Object.keys(Places.PROVINCES).filter(k => k.endsWith('国')).length, 68);
+  for (const city of ['福岡市', '札幌市', '仙台市', '横浜市', '名古屋市', '大阪市', '広島市', '那覇市']) {
+    assert.ok(Places.CITIES[city], city);
+  }
+});
+
+const resolve = (o = {}) => L.resolvePrefectures({ name: '', type: '', location: '', description: '', ...o });
+
+test('resolvePrefectures: Wikidata の所在地階層（市だけの登録でも都道府県が分かる）', () => {
+  assert.deepEqual(resolve({ location: '福岡市', wikidataPrefectures: '福岡県' }), ['福岡県']);
+  assert.deepEqual(resolve({ wikidataPrefectures: '静岡県, 山梨県' }).sort(), ['山梨県', '静岡県']);
+  assert.deepEqual(resolve({ wikidataPrefectures: 'どこかの国' }), [], '都道府県でない値は無視する');
+});
+
+test('resolvePrefectures: 市名・旧国名・地方名から判定する', () => {
+  assert.ok(resolve({ location: '福岡市' }).includes('福岡県'));
+  assert.ok(resolve({ location: '相模国' }).includes('神奈川県'));
+  assert.deepEqual(resolve({ location: '出羽国' }).sort(), ['山形県', '秋田県'].sort());
+  assert.ok(resolve({ name: '関東大震災' }).includes('東京都'));
+  assert.ok(resolve({ location: '近畿地方, 四国' }).includes('愛媛県'));
+  assert.ok(resolve({ description: '東北地方太平洋沖地震' }).includes('宮城県'));
+});
+
+test('resolvePrefectures: 北九州市を九州全体、四国中央市を四国全体と取り違えない', () => {
+  assert.deepEqual(resolve({ location: '北九州市' }), ['福岡県']);
+  assert.deepEqual(resolve({ location: '四国中央市' }), ['愛媛県']);
+  assert.ok(resolve({ location: '北九州市, 四国' }).includes('福岡県'));
+});
+
+test('resolvePrefectures: 地名の部分一致による誤判定をしない', () => {
+  assert.ok(!resolve({ location: '大津市' }).includes('三重県'), '「津市」は対象外');
+  assert.ok(resolve({ location: '大津市' }).includes('滋賀県'));
+  assert.deepEqual(resolve({ location: '相模原市' }), ['神奈川県']);
+  assert.deepEqual(resolve({ location: '東京都' }), ['東京都']);
+});
+
+test('processResults: 「福岡県」で絞ると、福岡市（Wikidata）・旧国名・地方名だけの災害も拾う', () => {
+  const rows = [
+    row({ disaster: 'Q1', disasterLabel: '福岡の地震', locations: '福岡市', prefectures: '福岡県' }),
+    row({ disaster: 'Q2', disasterLabel: '筑前の地震', locations: '筑前国', prefectures: '' }),
+    row({ disaster: 'Q3', disasterLabel: '九州の豪雨', locations: '九州', prefectures: '' }),
+    row({ disaster: 'Q4', disasterLabel: '北九州の地震', locations: '北九州市', prefectures: '' }),
+    row({ disaster: 'Q5', disasterLabel: '宮城の地震', locations: '仙台市', prefectures: '宮城県' }),
+    row({ disaster: 'Q6', disasterLabel: '場所不明の地震', locations: undefined, description: undefined })
+  ];
+  assert.deepEqual(search(rows, { prefectures: ['福岡県'] }).map(r => r.name).sort(),
+    ['北九州の地震', '福岡の地震', '筑前の地震', '九州の豪雨'].sort());
+  assert.deepEqual(search(rows, { prefectures: ['宮城県'] }).map(r => r.name), ['宮城の地震']);
+  assert.equal(search(rows, { prefectures: ['北海道'] }).length, 0);
+});
+
+test('buildQuery: 所在地の階層（P131）をたどって都道府県（Q50337）を求める', () => {
+  const q = L.buildQuery(3);
+  assert.match(q, /wdt:P131\*/);
+  assert.match(q, /wd:Q50337/);
 });
 
 test('stripInlineStyles: <style> と style 属性だけを取り除く', () => {
