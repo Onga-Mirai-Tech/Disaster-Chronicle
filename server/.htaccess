@@ -1,0 +1,58 @@
+# =====================================================================
+# Disaster Chronicle - Xserver（Apache）用設定
+# scripts/build.sh により dist/.htaccess としてドキュメントルートに配置される。
+# ドメインを変更する場合は、下記「正規ホスト名」の2箇所を書き換えること。
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# HTTPS化 + 正規ホスト名への統一
+# Xserverのサブドメインは「メインドメインのpublic_html/<サブドメインのFQDN>/」に
+# 置かれるため、https://onga-mirai-tech.com/<サブドメインのFQDN>/ でも
+# 同じ内容が見えてしまう。正規ホスト名以外からのアクセスはすべて301で寄せる。
+# ---------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} !on [OR]
+  RewriteCond %{HTTP_HOST} !^disaster-chronicle\.onga-mirai-tech\.com$ [NC]
+  RewriteRule ^(.*)$ https://disaster-chronicle.onga-mirai-tech.com/$1 [R=301,L]
+</IfModule>
+
+ErrorDocument 404 /404.html
+
+# ディレクトリ一覧を表示しない
+Options -Indexes
+
+# ---------------------------------------------------------------------
+# セキュリティヘッダー
+# ---------------------------------------------------------------------
+<IfModule mod_headers.c>
+  # HSTS：1年間は HTTPS でのみ接続させる（移行直後は1日で運用し、安定を確認して延長）
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "DENY"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+  # CSP：スクリプト・CSS・フォントはすべて自サイトから配信しているため、外部の読み込み元は許可しない。
+  #  - connect-src: Wikidata（SPARQL）と日本語版Wikipedia（API）のみ
+  # 外部サービスへの通信を追加・変更したら、ここも必ず更新すること（更新漏れは本番でのみ壊れる）。
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://query.wikidata.org https://ja.wikipedia.org; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+</IfModule>
+
+# ---------------------------------------------------------------------
+# キャッシュ
+# HTML・JS・CSS は毎回サーバーに更新確認させ、修正がすぐ利用者に届くようにする
+# （変更が無ければ 304 が返るだけなので、通信量はほとんど増えない）
+# ---------------------------------------------------------------------
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|css)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+
+# ---------------------------------------------------------------------
+# 圧縮
+# ---------------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript image/svg+xml
+</IfModule>
