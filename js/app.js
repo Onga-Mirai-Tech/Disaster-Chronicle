@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const { PREFECTURES, buildQuery, processResults, sortResults, extractWikiTitle, stripInlineStyles } = window.DisasterLogic;
+  const { PREFECTURES, buildQuery, processResults, sortResults, extractWikiTitle, stripFootnoteMarkers, stripInlineStyles } = window.DisasterLogic;
 
   const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
   const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
@@ -173,12 +173,12 @@
   const MAX_FIELD_LENGTH = 160;
 
   function cleanInfoboxText(text) {
-    const cleaned = text.replace(/\[(?:注釈?\s*)?\d+\]/g, '').replace(/\s+/g, ' ').trim();
+    const cleaned = text.replace(/\[(?:注釈?|N)?\s*\d+\]/g, '').replace(/\s+/g, ' ').trim();
     return cleaned.length > MAX_FIELD_LENGTH ? `${cleaned.slice(0, MAX_FIELD_LENGTH)}…` : cleaned;
   }
 
   function parseInfobox(html) {
-    const doc = new DOMParser().parseFromString(stripInlineStyles(html), 'text/html'); // 解析のみ（スクリプトは実行されない）
+    const doc = new DOMParser().parseFromString(stripInlineStyles(stripFootnoteMarkers(html)), 'text/html'); // 解析のみ（スクリプトは実行されない）
     const infobox = doc.querySelector('table.infobox');
     if (!infobox) return null;
 

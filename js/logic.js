@@ -125,6 +125,16 @@ WHERE {
     }
   }
 
+  // Wikipedia のHTMLから脚注の記号を取り除く。残すと被害の概要が「災害関連死52人[N 1]」「3兆円注1」のようになる。
+  //  - <sup class="reference">…[N 1]…</sup>（出典・脚注へのリンク）
+  //  - <sup>注1</sup> / <sup>注釈 2</sup>（注の記号）
+  // 10<sup>6</sup> のような本物の上付き文字は残す。
+  function stripFootnoteMarkers(html) {
+    return String(html)
+      .replace(/<sup\b[^>]*\bclass\s*=\s*"(?:[^"]*\s)?reference(?:\s[^"]*)?"[^>]*>[\s\S]*?<\/sup>/gi, '')
+      .replace(/<sup\b[^>]*>\s*(?:注釈?|脚注|N)\s*\d+\s*<\/sup>/gi, '');
+  }
+
   // Wikipedia のHTMLから <style> と style 属性を取り除く。
   // 解析結果から使うのはテキストだけだが、これらを含んだまま DOMParser に渡すと、
   // 本番の CSP（style-src 'self'）に違反するものとして1回の検索でコンソールに数百件のエラーが出てしまう。
@@ -240,6 +250,7 @@ WHERE {
     isWithinXDays,
     extractWikiTitle,
     resolvePrefectures,
+    stripFootnoteMarkers,
     stripInlineStyles,
     processResults,
     sortResults

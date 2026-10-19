@@ -230,6 +230,15 @@ test('buildQuery: 所在地の階層（P131）をたどって都道府県（Q503
   assert.match(q, /wd:Q50337/);
 });
 
+test('stripFootnoteMarkers: 出典リンクと注の記号を取り除き、本物の上付き文字は残す', () => {
+  const ref = '災害関連死52人<sup id="cite&#95;ref-wni&#95;1-0" class="reference"><a href="#cite_note-wni-1"><span class="cite-bracket">&#91;</span>N 1<span class="cite-bracket">&#93;</span></a></sup>）';
+  assert.equal(L.stripFootnoteMarkers(ref), '災害関連死52人）');
+  assert.equal(L.stripFootnoteMarkers('3兆円<sup>注1</sup>'), '3兆円');
+  assert.equal(L.stripFootnoteMarkers('3兆円<sup> 注釈 2 </sup>と<sup class="x reference y">[3]</sup>'), '3兆円と');
+  assert.equal(L.stripFootnoteMarkers('1.2×10<sup>12</sup>円'), '1.2×10<sup>12</sup>円', '指数は残す');
+  assert.equal(L.stripFootnoteMarkers('<sup class="reference-text">a</sup>'), '<sup class="reference-text">a</sup>', 'クラス名の部分一致では消さない');
+});
+
 test('stripInlineStyles: <style> と style 属性だけを取り除く', () => {
   const html = '<style>.a{color:red}</style><table class="infobox" style="width:20em"><tr><th style=\'x:y\'>規模</th><td>M9.0</td></tr></table>';
   assert.equal(L.stripInlineStyles(html), '<table class="infobox"><tr><th>規模</th><td>M9.0</td></tr></table>');
